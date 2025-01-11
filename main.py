@@ -5,7 +5,7 @@ from Memory import Memory
 from Utilities import config_utility, endpoint_utility, environment_utility, time_utility, logging_utility, file_utility
 
 
-# from APIs.hololens import hololens_portal
+from APIs.hololens import hololens_portal
 
 
 def _load_environment(env):
@@ -32,8 +32,8 @@ def setup_environment():
     _logger.info("Starting Server")
 
     # Set HL2 camera: uncomment the two lines below if you want to set the HL2 camera
-    # hololens_portal.set_api_credentials()
-    # hololens_portal.set_hololens_as_camera()
+    hololens_portal.set_api_credentials()
+    hololens_portal.set_hololens_as_camera()
 
 
 def start_processing():

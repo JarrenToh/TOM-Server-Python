@@ -8,7 +8,10 @@ from Utilities import logging_utility
 from base_component import BaseComponent
 from .template_data_handler import build_template_data
 
+from APIs.local_llm import local_translator
+
 DATATYPE_REQUEST_TEMPLATE_DATA = datatypes_helper.get_key_by_name("REQUEST_TEMPLATE_DATA")
+DATATYPE_SPEECH_INPUT_DATA = datatypes_helper.get_key_by_name("SPEECH_INPUT_DATA")
 
 _logger = logging_utility.setup_logger(__name__)
 
@@ -21,12 +24,13 @@ class TemplateService(BaseComponent):
 
     SUPPORTED_DATATYPES = {
         "TEMPLATE_DATA",
-        "REQUEST_TEMPLATE_DATA"
+        "REQUEST_TEMPLATE_DATA",
+        "SPEECH_INPUT_DATA"
     }
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
-        self.image_detector = YoloDetector
+        self.translator = local_translator
 
     def run(self, raw_data: dict) -> None:
         super().set_component_status(base_keys.COMPONENT_IS_RUNNING_STATUS)
@@ -42,22 +46,34 @@ class TemplateService(BaseComponent):
 
             self._handle_websocket_data(datatype, data)
 
-        if origin == base_keys.YOLOV8_PROCESSOR:
-            self._handle_camera_data(raw_data)
+
 
     def _handle_websocket_data(self, socket_data_type, decoded_data):
         if socket_data_type == DATATYPE_REQUEST_TEMPLATE_DATA:
             self._handle_template_request(decoded_data)
 
+        if socket_data_type == DATATYPE_SPEECH_INPUT_DATA:
+            self._handle_speech_data(decoded_data)
+
+        # voice interaction
+    def _handle_speech_data(self, speech_data):
+        voice = speech_data.voice
+        _logger.info("Received speech data: {voice}", voice=voice)
+
+        if voice is not None and voice != "":
+            translated_text = local_translator.translate_text(voice)
+            self._send_websocket_template_data(translated_text)
+
+
     def _handle_template_request(self, request_data):
         _logger.info("Template Request Data: {decoded_data}, {detail}",
                      decoded_data=request_data, detail=request_data.detail)
-        try:
-            label, image = self._get_detected_label_and_image()
-            self._send_websocket_template_data(text=label, image=image, audio_path="two_beep_audio")
-        except Exception:
-            # No object is detected
-            _logger.error("Error getting detected label and image")
+        # try:
+        #     label, image = self._get_detected_label_and_image()
+        #     self._send_websocket_template_data(text=label, image=image, audio_path="two_beep_audio")
+        # except Exception:
+        #     # No object is detected
+        #     _logger.error("Error getting detected label and image")
 
     def _send_websocket_template_data(self, text: str = "", image: bytes = None, audio_path: str = "") -> None:
         '''
@@ -76,45 +92,45 @@ class TemplateService(BaseComponent):
         _logger.info("Sending Template Data (Text: {text}, Image, Audio: {audio_path}) sent to Template Scene",
                      text=text, image=image, audio_path=audio_path)
 
-    # Set the camera frame, frame width, frame height, last detection and class labels in the "shared" memory
-    def _handle_camera_data(self, raw_data: dict) -> None:
-        super().set_memory_data(base_keys.CAMERA_FRAME, raw_data[base_keys.CAMERA_FRAME])
-        super().set_memory_data(base_keys.CAMERA_FRAME_WIDTH, raw_data[base_keys.CAMERA_FRAME_WIDTH])
-        super().set_memory_data(base_keys.CAMERA_FRAME_HEIGHT, raw_data[base_keys.CAMERA_FRAME_HEIGHT])
-        super().set_memory_data(base_keys.YOLOV8_LAST_DETECTION, raw_data[base_keys.YOLOV8_LAST_DETECTION])
-        super().set_memory_data(base_keys.YOLOV8_CLASS_LABELS, raw_data[base_keys.YOLOV8_CLASS_LABELS])
+    # # Set the camera frame, frame width, frame height, last detection and class labels in the "shared" memory
+    # def _handle_camera_data(self, raw_data: dict) -> None:
+    #     super().set_memory_data(base_keys.CAMERA_FRAME, raw_data[base_keys.CAMERA_FRAME])
+    #     super().set_memory_data(base_keys.CAMERA_FRAME_WIDTH, raw_data[base_keys.CAMERA_FRAME_WIDTH])
+    #     super().set_memory_data(base_keys.CAMERA_FRAME_HEIGHT, raw_data[base_keys.CAMERA_FRAME_HEIGHT])
+    #     super().set_memory_data(base_keys.YOLOV8_LAST_DETECTION, raw_data[base_keys.YOLOV8_LAST_DETECTION])
+    #     super().set_memory_data(base_keys.YOLOV8_CLASS_LABELS, raw_data[base_keys.YOLOV8_CLASS_LABELS])
 
-    # Get frame data from memory and get the detected label and image
-    def _get_detected_label_and_image(self) -> tuple:
-        frame_detections: dict = super().get_memory_data(base_keys.YOLOV8_LAST_DETECTION)
-        frame: numpy.ndarray = super().get_memory_data(base_keys.CAMERA_FRAME)
-        frame_width: int = super().get_memory_data(base_keys.CAMERA_FRAME_WIDTH)
-        frame_height: int = super().get_memory_data(base_keys.CAMERA_FRAME_HEIGHT)
-        class_labels: dict = super().get_memory_data(base_keys.YOLOV8_CLASS_LABELS)
+    # # Get frame data from memory and get the detected label and image
+    # def _get_detected_label_and_image(self) -> tuple:
+    #     frame_detections: dict = super().get_memory_data(base_keys.YOLOV8_LAST_DETECTION)
+    #     frame: numpy.ndarray = super().get_memory_data(base_keys.CAMERA_FRAME)
+    #     frame_width: int = super().get_memory_data(base_keys.CAMERA_FRAME_WIDTH)
+    #     frame_height: int = super().get_memory_data(base_keys.CAMERA_FRAME_HEIGHT)
+    #     class_labels: dict = super().get_memory_data(base_keys.YOLOV8_CLASS_LABELS)
 
-        label, image = self._get_first_yolov8_detection(frame_detections, frame, frame_width, frame_height,
-                                                        class_labels)
-        return label, image
+    #     label, image = self._get_first_yolov8_detection(frame_detections, frame, frame_width, frame_height,
+    #                                                     class_labels)
+    #     return label, image
 
-    # Get the first detected label and image from the frame detections
-    def _get_first_yolov8_detection(self, frame_detections: dict, frame: numpy.ndarray, frame_width: int,
-                                    frame_height: int, class_labels: dict) -> tuple:
-        detections = YoloDetector.get_detection_in_region(frame_detections, [0, 0, frame_width, frame_height])
+    # # Get the first detected label and image from the frame detections
+    # def _get_first_yolov8_detection(self, frame_detections: dict, frame: numpy.ndarray, frame_width: int,
+    #                                 frame_height: int, class_labels: dict) -> tuple:
+    #     detections = YoloDetector.get_detection_in_region(frame_detections, [0, 0, frame_width, frame_height])
 
-        if detections is None or len(detections.class_id) == 0:
-            return None, None
+    #     if detections is None or len(detections.class_id) == 0:
+    #         return None, None
 
-        # take the first detection
-        class_id: int = detections.class_id[0]
-        xy_bounds: list = detections.xyxy[0]
-        label: str = class_labels[class_id]
+    #     # take the first detection
+    #     class_id: int = detections.class_id[0]
+    #     xy_bounds: list = detections.xyxy[0]
+    #     label: str = class_labels[class_id]
 
-        # Crop the frame to the bounding box of the detected object and /
-        # convert it to bytes before sending it to the template scene
-        image_frame: numpy.ndarray = image_utility.get_cropped_frame(frame, math.floor(xy_bounds[0]),
-                                                                     math.floor(xy_bounds[1]),
-                                                                     math.floor(xy_bounds[2]),
-                                                                     math.floor(xy_bounds[3]))
-        image: bytes = image_utility.get_png_image_bytes(image_frame)
+    #     # Crop the frame to the bounding box of the detected object and /
+    #     # convert it to bytes before sending it to the template scene
+    #     image_frame: numpy.ndarray = image_utility.get_cropped_frame(frame, math.floor(xy_bounds[0]),
+    #                                                                  math.floor(xy_bounds[1]),
+    #                                                                  math.floor(xy_bounds[2]),
+    #                                                                  math.floor(xy_bounds[3]))
+    #     image: bytes = image_utility.get_png_image_bytes(image_frame)
 
-        return label, image
+    #     return label, image
